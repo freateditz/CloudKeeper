@@ -1,0 +1,24 @@
+{
+  "name": "cloudkeeper",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,css}\""
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "prettier": "latest",
+    "eslint": "latest",
+    "husky": "latest",
+    "lint-staged": "latest"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

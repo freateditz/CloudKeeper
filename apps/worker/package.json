@@ -1,0 +1,10 @@
+{
+  "name": "@cloudkeeper/worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  }
+}

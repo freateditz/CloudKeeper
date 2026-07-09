@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum Provider {
+  MEGA
+  MEDIAFIRE
+  GOOGLE_DRIVE
+  DROPBOX
+  PCLOUD
+  ICEDRIVE
+  PROTON_DRIVE
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  MAINTENANCE
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// Models
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  accounts     CloudAccount[]
+  settings     Settings?
+}
+
+model CloudAccount {
+  id                 String          @id @default(uuid())
+  provider           Provider
+  accountEmail       String
+  encryptedPassword  String
+  notes              String?
+  status             AccountStatus   @default(ACTIVE)
+  lastMaintenanceAt  DateTime?
+  nextMaintenanceAt  DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  userId             String
+  user               User            @relation(fields: [userId], references: [id])
+  maintenanceLogs    MaintenanceLog[]
+
+  @@index([userId])
+  @@index([provider])
+}
+
+model MaintenanceJob {
+  id                  String          @id @default(uuid())
+  startedAt           DateTime        @default(now())
+  finishedAt          DateTime?
+  status              JobStatus       @default(PENDING)
+  duration            Int? // in seconds
+  totalAccounts       Int             @default(0)
+  successfulAccounts  Int             @default(0)
+  failedAccounts      Int             @default(0)
+  maintenanceLogs     MaintenanceLog[]
+}
+
+model MaintenanceLog {
+  id               String         @id @default(uuid())
+  cloudAccountId   String
+  maintenanceJobId String
+  success          Boolean
+  errorMessage     String?
+  screenshotPath   String?
+  startedAt        DateTime       @default(now())
+  finishedAt       DateTime?
+  duration         Int? // in seconds
+  cloudAccount     CloudAccount   @relation(fields: [cloudAccountId], references: [id])
+  maintenanceJob   MaintenanceJob @relation(fields: [maintenanceJobId], references: [id])
+
+  @@index([cloudAccountId])
+  @@index([maintenanceJobId])
+}
+
+model Settings {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  telegramWebhook   String?
+  discordWebhook    String?
+  emailNotification Boolean  @default(true)
+  timezone          String   @default("UTC")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+}
