@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@cloudkeeper/database": ["../../packages/database/src/index.ts"],
+      "@cloudkeeper/types": ["../../packages/types/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}
