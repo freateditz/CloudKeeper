@@ -1,26 +1,17 @@
 import { Router } from "express";
-import { AccountsService } from "./accounts.service";
+import { AccountsController } from "./accounts.controller";
 import { authenticate } from "../../middleware/auth.middleware";
-import { createAccountSchema } from "./accounts.validator";
 
 const router: Router = Router();
 
+// All account routes require authentication.
 router.use(authenticate);
 
-router.get("/", async (req, res) => {
-  const accounts = await AccountsService.list((req as any).user.userId);
-  res.json(accounts);
-});
-
-router.post("/", async (req, res) => {
-  const data = createAccountSchema.parse(req.body);
-  const account = await AccountsService.create((req as any).user.userId, data);
-  res.status(201).json(account);
-});
-
-router.delete("/:id", async (req, res) => {
-  await AccountsService.delete(req.params.id, (req as any).user.userId);
-  res.status(204).send();
-});
+router.get("/", AccountsController.list);
+router.get("/:id", AccountsController.getById);
+router.post("/", AccountsController.create);
+router.put("/:id", AccountsController.update);
+router.patch("/:id", AccountsController.update);
+router.delete("/:id", AccountsController.delete);
 
 export default router;

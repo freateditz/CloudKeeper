@@ -8,6 +8,7 @@ export interface Queue {
   enqueue(job: Job): void;
   dequeue(): Job | undefined;
   cancel(jobId: string): void;
+  size(): number;
 }
 
 export class InMemoryQueue implements Queue {
@@ -23,6 +24,10 @@ export class InMemoryQueue implements Queue {
   }
 
   cancel(jobId: string) {
-    this.jobs = this.jobs.filter(j => j.id !== jobId);
+    this.jobs = this.jobs.filter((j) => j.id !== jobId);
+  }
+
+  size(): number {
+    return this.jobs.length;
   }
 }

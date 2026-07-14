@@ -42,6 +42,7 @@ model User {
   updatedAt    DateTime       @updatedAt
   accounts     CloudAccount[]
   settings     Settings?
+  passwordResetTokens PasswordResetToken[]
 }
 
 model CloudAccount {
@@ -49,6 +50,8 @@ model CloudAccount {
   provider           Provider
   accountEmail       String
   encryptedPassword  String
+  iv                 String
+  tag                String
   notes              String?
   status             AccountStatus   @default(ACTIVE)
   lastMaintenanceAt  DateTime?
@@ -72,6 +75,8 @@ model MaintenanceJob {
   totalAccounts       Int             @default(0)
   successfulAccounts  Int             @default(0)
   failedAccounts      Int             @default(0)
+  accountId           String?
+  provider            Provider?
   maintenanceLogs     MaintenanceLog[]
 }
 
@@ -103,3 +108,14 @@ model Settings {
   updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id])
 }
+
+model PasswordResetToken {
+  token     String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+

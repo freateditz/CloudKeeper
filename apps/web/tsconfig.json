@@ -16,6 +16,9 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
+      "@/*": [
+        "./src/*"
+      ],
       "@cloudkeeper/types": [
         "../../packages/types/index.ts"
       ]

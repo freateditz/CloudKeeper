@@ -5,7 +5,8 @@
     "baseUrl": ".",
     "paths": {
       "@cloudkeeper/database": ["../../packages/database/src/index.ts"],
-      "@cloudkeeper/types": ["../../packages/types/index.ts"]
+      "@cloudkeeper/types": ["../../packages/types/index.ts"],
+      "@cloudkeeper/security": ["../../packages/security/src/index.ts"]
     }
   },
   "include": ["src/**/*"]

@@ -10,9 +10,11 @@
   "dependencies": {
     "@cloudkeeper/database": "workspace:*",
     "@cloudkeeper/provider-sdk": "workspace:*",
+    "@cloudkeeper/security": "workspace:*",
     "@cloudkeeper/types": "workspace:*",
-    "playwright": "^1.49.1",
-    "zod": "^3.24.1"
+    "dotenv": "^16.4.7",
+    "playwright": "^1.49.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
