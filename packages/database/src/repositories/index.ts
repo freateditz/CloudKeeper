@@ -92,6 +92,17 @@ export class MaintenanceJobRepository {
     });
   }
 
+  async findInFlightForAccounts(accountIds: string[]) {
+    if (accountIds.length === 0) return [];
+    return prisma.maintenanceJob.findMany({
+      where: {
+        accountId: { in: accountIds },
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+      },
+      select: { id: true, accountId: true, status: true },
+    });
+  }
+
   async update(id: string, data: Partial<Omit<MaintenanceJob, "id">>) {
     return prisma.maintenanceJob.update({ where: { id }, data });
   }

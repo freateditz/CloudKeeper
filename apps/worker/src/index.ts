@@ -27,7 +27,7 @@ if (envFile) {
 
 import { BrowserManager } from "./browser/BrowserManager";
 import { defaultBrowserConfig } from "./browser/BrowserConfig";
-import { InMemoryQueue, Queue } from "./queue";
+import { InMemoryQueue, Job, Queue } from "./queue";
 import { JobRunner } from "./services/JobRunner";
 import { WorkerLogger } from "./utils/Logger";
 import { JobStatus, MaintenanceJobRepository } from "@cloudkeeper/database";
@@ -61,29 +61,107 @@ async function pollJobs(runner: JobRunner, queue: Queue) {
 }
 
 async function processQueue(runner: JobRunner, queue: Queue) {
-  while (queue.size() > 0) {
+  // Drain the queue with a bounded-concurrency worker pool.
+  //
+  // Up to `WORKER_CONCURRENCY` jobs may be in-flight at once. We never
+  // redesign JobRunner or change the per-job wrapper (try → runner.run
+  // → DB update) — we only stop blocking the loop on a single job.
+  //
+  // The pool terminates when the queue is empty AND no tasks are in
+  // flight, so an invocation never leaves a job dangling.
+  const concurrency = readConcurrency();
+  logger.log(`[processQueue] Starting drain (concurrency=${concurrency})`);
+
+  const inFlight = new Set<Promise<void>>();
+
+  const startNext = (): boolean => {
+    if (inFlight.size >= concurrency) return false;
     const job = queue.dequeue();
-    if (!job) continue;
+    if (!job) return false;
 
-    const logContext = {
-      timestamp: new Date().toISOString(),
-      jobId: job.id,
-      accountId: job.payload?.accountId,
-      provider: job.payload?.provider,
-      status: "PROCESSING"
-    };
+    const task = runJob(runner, job).finally(() => {
+      inFlight.delete(task);
+    });
+    inFlight.add(task);
+    return true;
+  };
 
-    logger.log(`[processQueue] Processing job:`, logContext);
-
-    try {
-      await runner.run(job);
-      await jobRepository.update(job.id, { status: JobStatus.COMPLETED, finishedAt: new Date() });
-      logger.log(`[processQueue] Job ${job.id} completed successfully.`, logContext);
-    } catch (error) {
-      logger.error(`[processQueue] Job ${job.id} failed:`, error as Error, logContext);
-      await jobRepository.update(job.id, { status: JobStatus.FAILED, finishedAt: new Date() });
-    }
+  // Prime the pool up to the concurrency limit.
+  while (inFlight.size < concurrency && startNext()) {
+    /* keep launching */
   }
+
+  // Keep draining. Whenever a slot opens up (or new jobs are enqueued
+  // by the polling loop), launch another task. When the queue empties
+  // AND no tasks are in flight, we're done.
+  while (inFlight.size > 0 || queue.size() > 0) {
+    if (queue.size() > 0 && inFlight.size < concurrency) {
+      while (startNext()) {
+        /* keep launching up to the limit */
+      }
+    }
+    if (inFlight.size === 0) break;
+    // Wait for any in-flight task to settle, then loop and try to launch
+    // another one. Promise.race over the current set is sufficient — the
+    // .finally() above removes settled tasks so the set shrinks naturally.
+    await Promise.race(inFlight);
+  }
+
+  logger.log(`[processQueue] Drain complete (concurrency=${concurrency})`);
+}
+
+/**
+ * Run a single job with the same try/catch/DB-update/log wrapper that
+ * the original sequential processQueue used. Extracted so the bounded
+ * drain loop above can call it for each in-flight task.
+ */
+async function runJob(runner: JobRunner, job: Job): Promise<void> {
+  const logContext = {
+    timestamp: new Date().toISOString(),
+    jobId: job.id,
+    accountId: job.payload?.accountId,
+    provider: job.payload?.provider,
+    status: "PROCESSING",
+  };
+
+  logger.log(`[processQueue] Processing job:`, logContext);
+
+  try {
+    await runner.run(job);
+    await jobRepository.update(job.id, {
+      status: JobStatus.COMPLETED,
+      finishedAt: new Date(),
+    });
+    logger.log(`[processQueue] Job ${job.id} completed successfully.`, logContext);
+  } catch (error) {
+    logger.error(
+      `[processQueue] Job ${job.id} failed:`,
+      error as Error,
+      logContext
+    );
+    await jobRepository.update(job.id, {
+      status: JobStatus.FAILED,
+      finishedAt: new Date(),
+    });
+  }
+}
+
+/**
+ * Read WORKER_CONCURRENCY from the environment.
+ * Defaults to 1 (sequential), as specified. Must be a positive integer;
+ * invalid values fall back to 1.
+ */
+function readConcurrency(): number {
+  const raw = process.env.WORKER_CONCURRENCY;
+  if (!raw) return 1;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    logger.log(
+      `[processQueue] Invalid WORKER_CONCURRENCY=${raw}, defaulting to 1`
+    );
+    return 1;
+  }
+  return n;
 }
 
 async function bootstrap() {
@@ -91,6 +169,7 @@ async function bootstrap() {
     env: process.env.NODE_ENV ?? "development",
     db: process.env.DATABASE_URL ? "set" : "MISSING",
     encryptionKey: process.env.MASTER_ENCRYPTION_KEY ? "set" : "MISSING",
+    concurrency: readConcurrency(),
   });
 
   const queue = new InMemoryQueue();

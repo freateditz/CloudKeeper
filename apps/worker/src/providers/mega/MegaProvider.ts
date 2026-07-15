@@ -48,7 +48,7 @@ export class MegaProvider extends BaseProvider {
 
     const page = await this.session.createPage();
     const screenshotDir = `/Users/vivek/cloudkeeper/apps/worker/logs/screenshots/`;
-    
+
     // Ensure dir exists (simplified: assumes it exists or worker has perms)
 
     const logStep = async (step: string, context?: any) => {
@@ -64,15 +64,15 @@ export class MegaProvider extends BaseProvider {
     try {
       await logStep("Navigating to login page");
       await page.goto(`${MEGA_URL}/login`, { waitUntil: "networkidle" });
-      
+
       try {
         await page.waitForSelector('.loading-main-block', { state: 'detached', timeout: 15000 });
         await logStep("Loading screen detached");
       } catch (e) {
         this.logger.log("Warning: loading-main-block was not detached");
       }
-      
-      await page.waitForTimeout(2000); 
+
+      await page.waitForTimeout(2000);
 
       await logStep("Attempting to fill email");
       const emailValid = await MegaEmailEntryService.fillEmail(page, credentials.email);

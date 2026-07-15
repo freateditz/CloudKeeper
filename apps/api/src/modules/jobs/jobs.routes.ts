@@ -8,6 +8,7 @@ router.use(authenticate);
 
 router.get("/", JobsController.list);
 router.get("/:id", JobsController.getById);
+router.post("/run-all", JobsController.runAll);
 router.post("/", JobsController.create);
 
 export default router;

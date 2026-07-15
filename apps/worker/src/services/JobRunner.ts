@@ -3,12 +3,14 @@ import { BrowserManager } from "../browser/BrowserManager";
 import { BrowserSession } from "../browser/BrowserSession";
 import { Job, Queue } from "../queue";
 import { WorkerLogger } from "../utils/Logger";
+import { JobLogger } from "../utils/JobLogger";
 import { MegaProvider } from "../providers/mega/MegaProvider";
 import { CredentialResolver } from "../providers/mega/CredentialResolver";
-import { Provider } from "@cloudkeeper/database";
+import { CloudAccountRepository, Provider } from "@cloudkeeper/database";
 
 export class JobRunner {
   private logger = new WorkerLogger();
+  private accountRepository = new CloudAccountRepository();
 
   constructor(
     private browserManager: BrowserManager,
@@ -16,40 +18,69 @@ export class JobRunner {
   ) {}
 
   async run(job: Job) {
-    const logContext = {
+    // Look up the account email once so we can tag every JobRunner-level
+    // log line with [Job xxx] [Account email]. Provider-internal logs
+    // already include jobId/accountId in their JSON context, so this
+    // gives concurrent jobs enough disambiguation without touching the
+    // provider.
+    let accountEmail: string | null = null;
+    const accountId = job.payload?.accountId as string | undefined;
+    if (accountId) {
+      try {
+        const account = await this.accountRepository.findById(accountId);
+        accountEmail = account?.accountEmail ?? null;
+      } catch {
+        // Lookup failure is non-fatal — we still log with accountId.
+      }
+    }
+
+    const log = new JobLogger(this.logger, job.id, accountEmail);
+
+    const baseContext = {
       timestamp: new Date().toISOString(),
       jobId: job.id,
-      accountId: job.payload?.accountId,
+      accountId,
+      accountEmail,
       provider: job.payload?.provider,
-      status: "RUNNING"
+      status: "RUNNING",
     };
 
-    this.logger.log("[JobRunner] Running job", logContext);
+    log.log("Running job", baseContext);
 
     try {
       const providerType = job.payload?.provider;
-      this.logger.log(`[JobRunner] Provider type: ${providerType}`, logContext);
+      log.log(`Provider type: ${providerType}`, baseContext);
       if (providerType === Provider.MEGA) {
-        this.logger.log("[JobRunner] MEGA provider detected. Building dependencies.", logContext);
+        log.log("MEGA provider detected. Building dependencies.", baseContext);
         // Build dependencies
         const context = await this.browserManager.createSession();
         const session = new BrowserSession(context);
         const masterKey = process.env.MASTER_ENCRYPTION_KEY;
         if (!masterKey) throw new Error("MASTER_ENCRYPTION_KEY missing");
-        
+
         const credentialProvider = new CredentialResolver(masterKey);
         const megaProvider = new MegaProvider(session, credentialProvider);
 
-        this.logger.log(`[JobRunner] Running MEGA login flow for account: ${job.payload.accountId}`, logContext);
-        const result = await megaProvider.runFullLoginFlow(job.payload.accountId, job.id);
+        log.log(
+          `Running MEGA login flow for account: ${accountId}`,
+          baseContext
+        );
+        const result = await megaProvider.runFullLoginFlow(
+          accountId as string,
+          job.id
+        );
         if (result.success) {
-          this.logger.log("MEGA maintenance complete: Login successful", { ...logContext, success: true, durationMs: result.durationMs });
+          log.log("MEGA maintenance complete: Login successful", {
+            ...baseContext,
+            success: true,
+            durationMs: result.durationMs,
+          });
         } else {
           const reason =
             (result.loginResult && (result.loginResult.errorMessage || result.loginResult.errorCode)) ||
             "unknown reason";
-          this.logger.log("MEGA maintenance complete: Login failed", {
-            ...logContext,
+          log.log("MEGA maintenance complete: Login failed", {
+            ...baseContext,
             success: false,
             reason,
             errorCode: result.loginResult?.errorCode,
@@ -59,12 +90,12 @@ export class JobRunner {
         return result;
       } else {
         // Fallback for others
-        this.logger.log(`[JobRunner] Using factory for provider: ${providerType}`, logContext);
+        log.log(`Using factory for provider: ${providerType}`, baseContext);
         const provider = ProviderFactory.createProvider(providerType);
         return await provider.maintenanceCheck();
       }
     } catch (error) {
-      this.logger.error("Job failed", error as Error, logContext);
+      log.error("Job failed", error as Error, baseContext);
       throw error;
     }
   }

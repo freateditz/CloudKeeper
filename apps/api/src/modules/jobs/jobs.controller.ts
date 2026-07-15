@@ -18,4 +18,10 @@ export const JobsController = {
     const job = await JobsService.create(accountId, provider);
     res.status(201).json({ job });
   },
+
+  async runAll(req: Request, res: Response) {
+    const { userId } = (req as AuthRequest).user;
+    const result = await JobsService.runAllForUser(userId);
+    res.status(201).json(result);
+  },
 };
