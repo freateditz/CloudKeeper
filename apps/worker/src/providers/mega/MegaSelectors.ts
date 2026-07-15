@@ -1,18 +1,17 @@
 export const MegaSelectors = {
   email: [
-    'input[type="email"]',
-    'input[name="email"]',
-    'input[aria-label="Email"]',
-    '[role="textbox"][name="email"]'
+    'input[name="login-name3"]',
+    '#login-name3'
   ],
   password: [
-    'input[type="password"]',
-    'input[name="password"]',
-    'input[aria-label="Password"]'
+    'input[name="login-password3"]',
+    '#login-password3'
   ],
+  // Note: We use getByRole('button', { name: 'Log in' }) directly in the executor
   loginButton: [
     'button[type="submit"]',
     'button:has-text("Log in")',
+    '.login-button',
     '[role="button"][name="login"]'
   ]
 };

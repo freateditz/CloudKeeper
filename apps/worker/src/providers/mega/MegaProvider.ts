@@ -47,22 +47,68 @@ export class MegaProvider extends BaseProvider {
     const executor = new MegaLoginExecutor();
 
     const page = await this.session.createPage();
+    const screenshotDir = `/Users/vivek/cloudkeeper/apps/worker/logs/screenshots/`;
+    
+    // Ensure dir exists (simplified: assumes it exists or worker has perms)
+
+    const logStep = async (step: string, context?: any) => {
+        const info = {
+            step,
+            url: page.url(),
+            title: await page.title(),
+            ...context
+        };
+        this.logger.log(`[Step] ${step}`, info);
+    };
+
     try {
-      await page.goto(`${MEGA_URL}/login`, { waitUntil: "load" });
-      await page.waitForTimeout(2000); // Wait for JS to load
-
-      // DEBUG: Log iframes
-      const frames = page.frames();
-      this.logger.log("Frames detected", { frameCount: frames.length, frames: frames.map(f => f.url()) });
+      await logStep("Navigating to login page");
+      await page.goto(`${MEGA_URL}/login`, { waitUntil: "networkidle" });
       
-      // DEBUG: Discover what's on the page
-      const validation = await MegaPageAnalyzer.validate(page);
-      this.logger.log("Page validation result", { validation });
+      try {
+        await page.waitForSelector('.loading-main-block', { state: 'detached', timeout: 15000 });
+        await logStep("Loading screen detached");
+      } catch (e) {
+        this.logger.log("Warning: loading-main-block was not detached");
+      }
+      
+      await page.waitForTimeout(2000); 
 
+      await logStep("Attempting to fill email");
       const emailValid = await MegaEmailEntryService.fillEmail(page, credentials.email);
-      await MegaPasswordEntryService.fillPassword(page, credentials.password);
+      await logStep("Email filled");
 
+      await logStep("Attempting to fill password");
+      await MegaPasswordEntryService.fillPassword(page, credentials.password);
+      await logStep("Password filled");
+
+      await logStep("Executing login");
       const loginResult = await executor.execute(page);
+      await logStep("Login execution complete", {
+        status: loginResult.status,
+        errorCode: loginResult.errorCode,
+        errorMessage: loginResult.errorMessage,
+        durationMs: loginResult.durationMs,
+      });
+
+      // Always log the final state explicitly so the maintenance job
+      // never reaches "MEGA maintenance complete" with success=false
+      // and no explanation.
+      if (loginResult.status === LoginStatus.SUCCESS) {
+        this.logger.log("Login successful", {
+          accountId,
+          jobId,
+          durationMs: loginResult.durationMs,
+        });
+      } else {
+        this.logger.log("Login failed", {
+          accountId,
+          jobId,
+          reason: loginResult.errorMessage || "unknown",
+          errorCode: loginResult.errorCode,
+          durationMs: loginResult.durationMs,
+        });
+      }
 
       // Database updates
       await this.logRepo.create({
@@ -82,8 +128,22 @@ export class MegaProvider extends BaseProvider {
         durationMs: Date.now() - start
       };
     } catch (error) {
-      await page.screenshot({ path: `failure-${jobId}.png` });
-      this.logger.error("Login flow failed", error as Error, { jobId, accountId });
+      const screenshotPath = `${screenshotDir}failure-${jobId}-${Date.now()}.png`;
+      await page.screenshot({ path: screenshotPath });
+      
+      const content = await page.content();
+      const htmlPath = `${screenshotDir}failure-${jobId}-${Date.now()}.html`;
+      // Write content to file
+      const fs = require('fs');
+      fs.writeFileSync(htmlPath, content);
+      
+      this.logger.error("Login flow failed", error as Error, { 
+        jobId, 
+        accountId, 
+        screenshot: screenshotPath,
+        html: htmlPath
+      });
+      
       throw error;
     } finally {
       await page.close();

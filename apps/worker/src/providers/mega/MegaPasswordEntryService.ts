@@ -20,9 +20,9 @@ export class MegaPasswordEntryService {
     let inputSuccessful = false;
     if (validation.isEditable) {
       await SecureInputHandler.fillPassword(page, password);
-      // Verification step:
-      const val = await page.locator(".password-input-selector").inputValue(); // Placeholder logic
-      inputSuccessful = true; // Simplified for the requirement
+      // Verification step: use the unique password input id
+      const val = await page.locator('#login-password3').inputValue();
+      inputSuccessful = val === password;
     }
 
     // 3. Clear sensitive data (already local, just ensure it's not reused)

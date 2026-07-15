@@ -26,8 +26,15 @@ export class MegaPageAnalyzer {
 
   private static async trySelectors(page: Page, selectors: string[]): Promise<boolean> {
     for (const selector of selectors) {
+      // Check main page first
       if (await page.locator(selector).first().isVisible()) {
         return true;
+      }
+      // Check frames if not found
+      for (const frame of page.frames()) {
+        if (await frame.locator(selector).first().isVisible()) {
+          return true;
+        }
       }
     }
     return false;

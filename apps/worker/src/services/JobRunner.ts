@@ -42,7 +42,20 @@ export class JobRunner {
 
         this.logger.log(`[JobRunner] Running MEGA login flow for account: ${job.payload.accountId}`, logContext);
         const result = await megaProvider.runFullLoginFlow(job.payload.accountId, job.id);
-        this.logger.log("MEGA maintenance complete", { ...logContext, success: result.success });
+        if (result.success) {
+          this.logger.log("MEGA maintenance complete: Login successful", { ...logContext, success: true, durationMs: result.durationMs });
+        } else {
+          const reason =
+            (result.loginResult && (result.loginResult.errorMessage || result.loginResult.errorCode)) ||
+            "unknown reason";
+          this.logger.log("MEGA maintenance complete: Login failed", {
+            ...logContext,
+            success: false,
+            reason,
+            errorCode: result.loginResult?.errorCode,
+            durationMs: result.durationMs,
+          });
+        }
         return result;
       } else {
         // Fallback for others
