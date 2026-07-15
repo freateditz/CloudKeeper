@@ -15,7 +15,7 @@
     "lint-staged": "^15.3.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "22.x"
   },
   "packageManager": "pnpm@11.10.0"
 }
