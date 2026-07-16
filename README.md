@@ -18,7 +18,7 @@ This project is a monorepo built using [Turborepo](https://turbo.build/).
 - **shared**: Shared utilities and logic.
 - **types**: TypeScript shared definitions.
 
-## Getting Started
+## Getting Startedeasd
 
 1. Install dependencies: `npm install`
 2. Develop: `npm run dev`
