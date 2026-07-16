@@ -2,12 +2,14 @@
   "name": "@cloudkeeper/security",
   "version": "0.0.1",
   "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
+    "build": "tsc",
     "test": "vitest"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
     "vitest": "^2.1.8",
     "typescript": "^5.7.2"
   }
