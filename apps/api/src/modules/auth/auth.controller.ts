@@ -42,7 +42,12 @@ export const AuthController = {
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: isProd,
-        sameSite: isProd ? "strict" : "lax",
+        // Cross-site deployments (Vercel -> Render) require SameSite=None
+        // so the browser sends the cookie on XHR/fetch from the SPA.
+        // SameSite=None requires Secure=true (set above in production).
+        // In dev (same-site localhost) Lax is fine and avoids the
+        // Secure requirement.
+        sameSite: isProd ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         path: "/",
       });
@@ -91,7 +96,7 @@ export const AuthController = {
       res.cookie("refreshToken", newRefreshToken, {
         httpOnly: true,
         secure: isProd,
-        sameSite: isProd ? "strict" : "lax",
+        sameSite: isProd ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         path: "/",
       });
