@@ -1,23 +1,111 @@
-import axios from "axios";
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
-export const api = axios.create({
-  baseURL: API_URL,
-  withCredentials: true,
-});
+// Module-duplication safety: Next.js production builds may bundle this
+// `api` module into more than one chunk (one for the auth-context's
+// imports of `setAuthToken`, another for the dashboard's import of
+// `api`). Each bundle then runs this top-level code, which would
+// otherwise create multiple axios instances with inconsistent state.
+// We pin the instance to `globalThis` so every chunk shares the same
+// axios instance, the same `refreshFailedThisSession` flag, and the
+// same in-flight refresh promise. The first evaluation creates the
+// instance + interceptors; every later evaluation (in any chunk) finds
+// and reuses it.
+declare global {
+  // eslint-disable-next-line no-var
+  var __cloudkeeperApi: AxiosInstance | undefined;
+  // eslint-disable-next-line no-var
+  var __cloudkeeperAuthFlags:
+    | {
+        refreshFailedThisSession: boolean;
+        inFlightRefresh: Promise<string | null> | null;
+      }
+    | undefined;
+}
 
-// Tracks whether a refresh has already failed during this client session.
-// Once a refresh returns 401 we stop attempting any further refreshes
-// (no more POSTs to /auth/refresh-token) until the user logs in again.
-// This breaks the infinite refresh-token loop that would otherwise occur
-// when the refresh cookie is missing — every 401 from a normal API call
-// would re-enter the interceptor and re-POST refresh-token.
-let refreshFailedThisSession = false;
+function getApi(): AxiosInstance {
+  if (globalThis.__cloudkeeperApi) return globalThis.__cloudkeeperApi;
 
-// Tracks a refresh that's currently in-flight so concurrent 401s share it
-// instead of each firing their own /auth/refresh-token POST.
-let inFlightRefresh: Promise<string | null> | null = null;
+  const instance = axios.create({
+    baseURL: API_URL,
+    withCredentials: true,
+  });
+
+  // Request interceptor: attach the current access token to every
+  // outbound request, reading it from localStorage. Because this runs
+  // per-request (not at instance creation), it works correctly even
+  // when the module is duplicated across chunks — every chunk shares
+  // the same axios instance via globalThis, but the localStorage read
+  // is global regardless.
+  instance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+    const token = getAuthToken();
+    if (token) {
+      config.headers = config.headers ?? ({} as any);
+      (config.headers as any)["Authorization"] = `Bearer ${token}`;
+    }
+    return config;
+  });
+
+  // Response interceptor — handles 401s by attempting a single refresh
+  // and retrying the original request. Hard rules:
+  //   1. Never retry a /auth/refresh-token request itself (would loop).
+  //   2. If a refresh has already failed this session, never try again.
+  //   3. If the refresh fails, clear local auth state and reject. Do NOT
+  //      force a full page reload — the protected-route layout will
+  //      router.push("/login") on its own.
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config;
+      const status = error.response?.status;
+
+      if (status !== 401) {
+        return Promise.reject(error);
+      }
+
+      // Rule 1: don't retry refresh-token requests.
+      if (isRefreshRequest(originalRequest)) {
+        return Promise.reject(error);
+      }
+
+      // Rule 2: a previous refresh already failed this session.
+      if (globalThis.__cloudkeeperAuthFlags?.refreshFailedThisSession) {
+        return Promise.reject(error);
+      }
+
+      // Rule: never retry the same request more than once (per-config).
+      if (originalRequest._retry) {
+        return Promise.reject(error);
+      }
+      originalRequest._retry = true;
+
+      const accessToken = await performRefresh();
+      if (!accessToken) {
+        setAuthToken(null);
+        return Promise.reject(error);
+      }
+
+      setAuthToken(accessToken);
+      originalRequest.headers = originalRequest.headers ?? {};
+      originalRequest.headers["Authorization"] = `Bearer ${accessToken}`;
+      return instance(originalRequest);
+    }
+  );
+
+  globalThis.__cloudkeeperApi = instance;
+  return instance;
+}
+
+function getAuthFlags() {
+  if (!globalThis.__cloudkeeperAuthFlags) {
+    globalThis.__cloudkeeperAuthFlags = {
+      refreshFailedThisSession: false,
+      inFlightRefresh: null,
+    };
+  }
+  return globalThis.__cloudkeeperAuthFlags;
+}
 
 function isRefreshRequest(config: any): boolean {
   const url = config?.url ?? "";
@@ -25,99 +113,55 @@ function isRefreshRequest(config: any): boolean {
 }
 
 function performRefresh(): Promise<string | null> {
-  if (inFlightRefresh) return inFlightRefresh;
-  inFlightRefresh = (async () => {
+  const flags = getAuthFlags();
+  if (flags.inFlightRefresh) return flags.inFlightRefresh;
+  flags.inFlightRefresh = (async () => {
     try {
-      const response = await axios.post(`${API_URL}/auth/refresh-token`, {}, { withCredentials: true });
+      const response = await axios.post(
+        `${API_URL}/auth/refresh-token`,
+        {},
+        { withCredentials: true }
+      );
       const accessToken: string | undefined = response.data?.accessToken;
       if (!accessToken) {
-        refreshFailedThisSession = true;
+        flags.refreshFailedThisSession = true;
         return null;
       }
-      // Successful refresh — allow future refreshes if the new access
-      // token also expires later in this session.
-      refreshFailedThisSession = false;
+      flags.refreshFailedThisSession = false;
       return accessToken;
     } catch {
-      refreshFailedThisSession = true;
+      flags.refreshFailedThisSession = true;
       return null;
     } finally {
-      inFlightRefresh = null;
+      flags.inFlightRefresh = null;
     }
   })();
-  return inFlightRefresh;
+  return flags.inFlightRefresh;
 }
 
-// Response interceptor — handles 401s by attempting a single refresh and
-// retrying the original request. Hard rules:
-//   1. Never retry a /auth/refresh-token request itself (would loop).
-//   2. If a refresh has already failed this session, never try again.
-//   3. If the refresh fails, clear local auth state and reject. Do NOT
-//      force a full page reload — the protected-route layout will
-//      router.push("/login") on its own.
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    const status = error.response?.status;
-
-    if (status !== 401) {
-      return Promise.reject(error);
-    }
-
-    // Rule 1: don't retry refresh-token requests — that's the call
-    // we're trying to recover *with*, so retrying it just creates a
-    // chain of identical 401s.
-    if (isRefreshRequest(originalRequest)) {
-      return Promise.reject(error);
-    }
-
-    // Rule 2: a previous refresh already failed this session. Treat
-    // the user as logged out and pass the 401 through unchanged.
-    if (refreshFailedThisSession) {
-      return Promise.reject(error);
-    }
-
-    // Rule: never retry the same request more than once (per-config).
-    if (originalRequest._retry) {
-      return Promise.reject(error);
-    }
-    originalRequest._retry = true;
-
-    const accessToken = await performRefresh();
-    if (!accessToken) {
-      // Refresh failed. Clear any stale credentials so subsequent
-      // calls don't carry a dead Authorization header. The protected
-      // route layout observes `user === null && !isLoading` and
-      // navigates to /login via the SPA router — no need for a
-      // window.location.href (which would full-reload and re-trigger
-      // fetchUser, restarting the loop).
-      setAuthToken(null);
-      return Promise.reject(error);
-    }
-
-    setAuthToken(accessToken);
-    originalRequest.headers = originalRequest.headers ?? {};
-    originalRequest.headers["Authorization"] = `Bearer ${accessToken}`;
-    return api(originalRequest);
-  }
-);
+// Eagerly create the shared instance at module-load time so the
+// interceptors are attached before any request is issued. Because the
+// instance is pinned to globalThis, the second/third bundle evaluation
+// in other chunks will short-circuit in getApi() and reuse it.
+export const api = getApi();
 
 export function setAuthToken(token: string | null) {
+  // Source of truth is localStorage. We intentionally do NOT mutate
+  // `api.defaults.headers` here — with Next.js module duplication the
+  // caller may be operating on a different chunk's axios instance than
+  // the one that will actually send the next request. The request
+  // interceptor reads from localStorage on every request.
+  const flags = getAuthFlags();
   if (token) {
-    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
     if (typeof window !== "undefined") {
       localStorage.setItem("accessToken", token);
     }
-    // A new (non-null) access token means a fresh session — allow the
-    // interceptor to attempt future refreshes if this token expires.
-    refreshFailedThisSession = false;
+    flags.refreshFailedThisSession = false;
   } else {
-    delete api.defaults.headers.common["Authorization"];
     if (typeof window !== "undefined") {
       localStorage.removeItem("accessToken");
     }
-    refreshFailedThisSession = true;
+    flags.refreshFailedThisSession = true;
   }
 }
 

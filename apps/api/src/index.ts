@@ -53,9 +53,37 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+// CORS allowlist. In production we accept:
+//   - the explicit CORS_ORIGIN env var (e.g. https://cloud-keeper-web-five.vercel.app)
+//   - any *.vercel.app host (Vercel preview deployments)
+//   - any *.onrender.com host (in case the API is proxied)
+// In dev we also accept any localhost port.
+// When credentials: true is set, Access-Control-Allow-Origin must be a
+// specific origin (not `*`) and Access-Control-Allow-Credentials: true
+// must be present — both are handled by the cors middleware when we
+// pass an `origin` function that returns the matching origin string.
+const ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.onrender\.com$/i,
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+];
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN) return true;
+  return ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(origin));
+}
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || true,
+    // The cors middleware invokes the origin function with
+    // (requestOrigin, callback). Returning `false` via the callback
+    // disables CORS headers for that request (it still proceeds to
+    // the route handlers, but the browser will block the response
+    // client-side). Returning a string sets the
+    // Access-Control-Allow-Origin header to that string. We always
+    // echo the request origin when it's allowed so multiple Vercel
+    // preview URLs work without a config change.
+    origin: (origin, callback) => callback(null, isOriginAllowed(origin) ? origin : false),
     credentials: true,
   })
 );
