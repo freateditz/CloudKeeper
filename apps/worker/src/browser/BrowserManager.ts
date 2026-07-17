@@ -13,11 +13,31 @@ export class BrowserManager {
     while (attempts < this.config.retryAttempts) {
       try {
         this.logger.log(`Launching browser (attempt ${attempts + 1})`, { type: this.config.type });
+        
+        // Log environment and configuration before launch
+        this.logger.log("Browser launch diagnostic info", {
+          type: this.config.type,
+          headless: this.config.headless,
+          platform: process.platform,
+          arch: process.arch,
+          nodeVersion: process.version,
+          PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || "Not set"
+        });
+
         this.browser = await this.getBrowserLauncher(this.config.type).launch({ headless: this.config.headless });
         return;
-      } catch (error) {
+      } catch (error: any) {
         attempts++;
-        this.logger.error("Failed to launch browser", error as Error, { attempt: attempts });
+        
+        // Comprehensive error logging
+        this.logger.error("Failed to launch browser", error as Error, {
+          attempt: attempts,
+          errorName: error.name,
+          errorMessage: error.message,
+          errorStack: error.stack,
+          fullError: error
+        });
+        
         if (attempts >= this.config.retryAttempts) throw error;
       }
     }
