@@ -3,6 +3,7 @@
 import { config as loadEnv } from "dotenv";
 import path from "path";
 import fs from "fs";
+import express from "express";
 
 function findEnvFile(): string | null {
   const candidates = [
@@ -172,6 +173,25 @@ async function bootstrap() {
     concurrency: readConcurrency(),
   });
 
+  // Start HTTP Health Check Server
+  const app = express();
+  const port = process.env.PORT || 3000;
+
+  app.get("/", (_req, res) => {
+    res.send("CloudKeeper Worker Running");
+  });
+
+  app.get("/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      service: "cloudkeeper-worker"
+    });
+  });
+
+  const server = app.listen(port, () => {
+    logger.log(`[http] Health check server listening on port ${port}`);
+  });
+
   const queue = new InMemoryQueue();
   const browserManager = new BrowserManager(defaultBrowserConfig);
   const runner = new JobRunner(browserManager, queue);
@@ -194,6 +214,13 @@ async function bootstrap() {
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     logger.log(`Received ${signal}, shutting down…`);
+    
+    // Shut down HTTP server
+    server.close((err) => {
+      if (err) logger.error("HTTP server close failed", err);
+      else logger.log("HTTP server closed");
+    });
+    
     try {
       await browserManager.cleanup();
     } catch (error) {

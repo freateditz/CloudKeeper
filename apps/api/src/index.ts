@@ -47,6 +47,7 @@ import notificationsRoutes from "./modules/notifications/notifications.routes";
 import sessionsRoutes from "./modules/sessions/sessions.routes";
 
 const app = express();
+app.set("trust proxy", 1);
 
 app.use(
   helmet({

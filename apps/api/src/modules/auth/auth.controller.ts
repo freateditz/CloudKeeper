@@ -38,7 +38,8 @@ export const AuthController = {
       const { email, password } = loginSchema.parse(req.body);
       const { accessToken, refreshToken, user } = await AuthService.login(email, password);
 
-      const isProd = process.env.NODE_ENV === "production";
+      const isLocal = req.hostname === "localhost" || req.hostname === "127.0.0.1";
+      const isProd = process.env.NODE_ENV === "production" || !isLocal;
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: isProd,
@@ -92,7 +93,8 @@ export const AuthController = {
 
       const { accessToken, refreshToken: newRefreshToken, user } = await AuthService.refreshToken(refreshToken);
 
-      const isProd = process.env.NODE_ENV === "production";
+      const isLocal = req.hostname === "localhost" || req.hostname === "127.0.0.1";
+      const isProd = process.env.NODE_ENV === "production" || !isLocal;
       res.cookie("refreshToken", newRefreshToken, {
         httpOnly: true,
         secure: isProd,

@@ -12,7 +12,9 @@
     "@cloudkeeper/provider-sdk": "workspace:*",
     "@cloudkeeper/security": "workspace:*",
     "@cloudkeeper/types": "workspace:*",
+    "@types/express": "^5.0.6",
     "dotenv": "^16.4.7",
+    "express": "^4.22.2",
     "playwright": "^1.49.0",
     "zod": "^3.24.0"
   },
